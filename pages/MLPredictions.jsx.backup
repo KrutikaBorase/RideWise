@@ -1,0 +1,620 @@
+import { motion, AnimatePresence } from 'framer-motion'
+import { useState, useEffect } from 'react'
+import Sidebar from '../components/Sidebar'
+import AnimatedBackground from '../components/AnimatedBackground'
+import { Brain, Calendar, Clock, MapPin, IndianRupee, AlertTriangle, Car, TrendingUp, Cloud, Zap, Activity } from 'lucide-react'
+import { api } from '../services/api'
+import { externalAPIs } from '../services/externalAPIs'
+
+export default function MLPredictions() {
+    const [activeModel, setActiveModel] = useState('daily')
+    const [loading, setLoading] = useState(false)
+    const [result, setResult] = useState(null)
+
+    // Form states
+    const [dailyForm, setDailyForm] = useState({
+        date: new Date().toISOString().split('T')[0],
+        location: 'Pune',
+        area: 'Koregaon Park',
+        weather: 'Clear',
+        dayType: 'weekday'
+    })
+    
+    const [hourlyForm, setHourlyForm] = useState({
+        date: new Date().toISOString().split('T')[0],
+        hour: new Date().getHours() % 12 || 12,
+        period: new Date().getHours() >= 12 ? 'PM' : 'AM',
+        location: 'Pune',
+        area: 'Hinjewadi',
+        trafficLevel: 'medium',
+        weather: 'Clear'
+    })
+
+    const [accidentForm, setAccidentForm] = useState({
+        location: 'Shivajinagar, Pune',
+        hour: new Date().getHours(),
+        weather: 'Clear',
+        traffic_density: 'medium'
+    })
+
+    const [tripForm, setTripForm] = useState({
+        distance_km: 5,
+        start_hour: 9,
+        day_of_week: 1,
+        traffic_level: 'medium'
+    })
+
+    const [pricingForm, setPricingForm] = useState({
+        distance_km: 5,
+        time_of_day: 9,
+        demand_level: 'medium',
+        surge_multiplier: 1.0
+    })
+
+    const handleDailyPredict = async () => {
+        setLoading(true)
+        setResult(null)
+        await new Promise(resolve => setTimeout(resolve, 100))
+        
+        try {
+            const response = await api.predictDay(dailyForm.date)
+            setResult({
+                type: 'Daily Demand',
+                value: Math.round(response.predicted_rides),
+                confidence: response.confidence,
+                details: `Expected rides in ${dailyForm.location} on ${new Date(dailyForm.date).toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}`,
+                weatherImpact: response.weather_impact,
+                weatherCondition: response.weather_condition,
+                modelUsed: response.model_used
+            })
+        } catch (error) {
+            alert('Prediction failed: ' + error.message)
+        } finally {
+            setLoading(false)
+        }
+    }
+
+    const handleHourlyPredict = async () => {
+        setLoading(true)
+        try {
+            // Convert AM/PM to 24-hour format
+            let hour24 = hourlyForm.hour
+            if (hourlyForm.period === 'PM' && hourlyForm.hour !== 12) {
+                hour24 = hourlyForm.hour + 12
+            } else if (hourlyForm.period === 'AM' && hourlyForm.hour === 12) {
+                hour24 = 0
+            }
+            
+            const response = await api.predictHour(hourlyForm.date, hour24)
+            const timeStr = `${hourlyForm.hour}:00 ${hourlyForm.period}`
+            setResult({
+                type: 'Hourly Demand',
+                value: Math.round(response.predicted_rides),
+                confidence: response.confidence,
+                details: `Expected rides in ${hourlyForm.location} at ${timeStr} on ${new Date(hourlyForm.date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}`
+            })
+        } catch (error) {
+            alert('Prediction failed: ' + error.message)
+        } finally {
+            setLoading(false)
+        }
+    }
+
+    const handleAccidentPredict = async () => {
+        setLoading(true)
+        try {
+            const response = await fetch('http://localhost:5000/api/accident-risk', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(accidentForm)
+            })
+            const data = await response.json()
+            if (data.success) {
+                setResult({
+                    type: 'Accident Risk',
+                    value: data.risk_level,
+                    confidence: `${data.risk_score}%`,
+                    details: `Risk analysis for ${accidentForm.location} at ${accidentForm.hour}:00`
+                })
+            } else {
+                alert('Prediction failed: ' + data.error)
+            }
+        } catch (error) {
+            alert('Prediction failed: ' + error.message)
+        } finally {
+            setLoading(false)
+        }
+    }
+
+    const handleTripPredict = async () => {
+        setLoading(true)
+        try {
+            const response = await fetch('http://localhost:5000/api/trip-duration', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    distance: tripForm.distance_km,
+                    hour: tripForm.start_hour,
+                    is_weekend: tripForm.day_of_week === 0 || tripForm.day_of_week === 6
+                })
+            })
+            const data = await response.json()
+            if (data.success) {
+                setResult({
+                    type: 'Trip Duration',
+                    value: `${data.duration_minutes} mins`,
+                    confidence: data.confidence || 'High',
+                    details: `Estimated time for ${tripForm.distance_km} km trip starting at ${tripForm.start_hour}:00. ETA: ${data.estimated_arrival}`
+                })
+            } else {
+                alert('Prediction failed: ' + (data.error || 'Unknown error'))
+            }
+        } catch (error) {
+            alert('Prediction failed: ' + error.message)
+        } finally {
+            setLoading(false)
+        }
+    }
+
+    const handlePricingPredict = async () => {
+        setLoading(true)
+        try {
+            const response = await fetch('http://localhost:5000/api/pricing-optimize', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    distance: pricingForm.distance_km,
+                    hour: pricingForm.time_of_day,
+                    pickup: 'Pickup Location',
+                    destination: 'Drop Location'
+                })
+            })
+            const data = await response.json()
+            if (data.success) {
+                setResult({
+                    type: 'Dynamic Pricing',
+                    value: `₹${data.optimized_price}`,
+                    confidence: data.confidence || 'High',
+                    details: `For ${pricingForm.distance_km} km ride at ${pricingForm.time_of_day}:00 with surge ${data.surge_multiplier}x`
+                })
+            } else {
+                alert('Prediction failed: ' + (data.error || 'Unknown error'))
+            }
+        } catch (error) {
+            alert('Prediction failed: ' + error.message)
+        } finally {
+            setLoading(false)
+        }
+    }
+
+    const models = [
+        { id: 'daily', name: 'Daily Demand', icon: Calendar, color: 'blue' },
+        { id: 'hourly', name: 'Hourly Demand', icon: Clock, color: 'purple' },
+        { id: 'accident', name: 'Accident Risk', icon: AlertTriangle, color: 'orange' },
+        { id: 'trip', name: 'Trip Duration', icon: Car, color: 'green' },
+        { id: 'pricing', name: 'Dynamic Pricing', icon: IndianRupee, color: 'emerald' }
+    ]
+
+    return (
+        <div className="flex min-h-screen bg-background">
+            <AnimatedBackground />
+            <Sidebar />
+            <div className="flex-1 overflow-auto custom-scrollbar">
+                <div className="max-w-7xl mx-auto p-6 md:p-10 space-y-8">
+                    <motion.div
+                        initial={{ opacity: 0, y: -20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        className="mb-8"
+                    >
+                        <h1 className="text-4xl font-bold bg-gradient-to-r from-cyan-500 to-blue-600 bg-clip-text text-transparent mb-2">AI Predictions</h1>
+                        <p className="text-muted-foreground">Predict bike rental demand with advanced machine learning models</p>
+                    </motion.div>
+
+                {/* Model Selection - Hidden for simplicity */}
+                <div className="hidden">
+                    {models.map((model) => (
+                        <button
+                            key={model.id}
+                            onClick={() => { setActiveModel(model.id); setResult(null); }}
+                            className={`group p-5 rounded-2xl border-2 transition-all hover:scale-105 ${
+                                activeModel === model.id
+                                    ? `border-${model.color}-500 bg-${model.color}-50 shadow-sm`
+                                    : 'border-gray-200 hover:border-cyan-300 bg-white hover:shadow-sm'
+                            }`}
+                        >
+                            <div className={`w-12 h-12 mx-auto mb-3 rounded-xl flex items-center justify-center ${
+                                activeModel === model.id ? `bg-${model.color}-500/20` : 'bg-slate-700/50'
+                            }`}>
+                                <model.icon className={`w-6 h-6 ${
+                                    activeModel === model.id ? `text-${model.color}-400` : 'text-slate-400 group-hover:text-purple-400'
+                                }`} />
+                            </div>
+                            <p className={`text-sm font-semibold ${
+                                activeModel === model.id ? 'text-white' : 'text-slate-400'
+                            }`}>{model.name}</p>
+                        </button>
+                    ))}
+                </div>
+
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    {/* Input Form */}
+                    <motion.div
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        className="bg-card rounded-2xl shadow-sm border border-border p-8"
+                    >
+                        <h3 className="text-xl font-bold text-foreground mb-6 flex items-center gap-2">
+                            <TrendingUp className="w-6 h-6 text-cyan-500" />
+                            Input Parameters
+                        </h3>
+
+                        {/* Daily Demand Form */}
+                        {activeModel === 'daily' && (
+                            <div className="space-y-4">
+                                <div>
+                                    <label className="text-sm font-medium text-gray-700 mb-2 block">📍 Location/Area</label>
+                                    <input
+                                        type="text"
+                                        value={dailyForm.area}
+                                        onChange={(e) => setDailyForm({ ...dailyForm, area: e.target.value })}
+                                        placeholder="Enter any location (e.g., Koregaon Park, Kothrud)"
+                                        className="w-full bg-white border border-gray-300 rounded-lg px-4 py-3 text-gray-900 placeholder:text-gray-400 focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="text-sm font-medium text-gray-700 mb-2 block">📅 Select Date</label>
+                                    <input
+                                        type="date"
+                                        value={dailyForm.date}
+                                        onChange={(e) => setDailyForm({ ...dailyForm, date: e.target.value })}
+                                        className="w-full bg-white border border-gray-300 rounded-lg px-4 py-3 text-gray-900 focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="text-sm font-medium text-gray-700 mb-2 block">📆 Day Type</label>
+                                    <select
+                                        value={dailyForm.dayType}
+                                        onChange={(e) => setDailyForm({ ...dailyForm, dayType: e.target.value })}
+                                        className="w-full bg-white border border-gray-300 rounded-lg px-4 py-3 text-gray-900 focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500"
+                                    >
+                                        <option value="weekday">Weekday</option>
+                                        <option value="weekend">Weekend</option>
+                                        <option value="holiday">Public Holiday</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="text-sm font-medium text-gray-700 mb-2 block">☁️ Weather Condition</label>
+                                    <select
+                                        value={dailyForm.weather}
+                                        onChange={(e) => setDailyForm({ ...dailyForm, weather: e.target.value })}
+                                        className="w-full bg-white border border-gray-300 rounded-lg px-4 py-3 text-gray-900 focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500"
+                                    >
+                                        <option value="Clear">Clear/Sunny</option>
+                                        <option value="Cloudy">Cloudy</option>
+                                        <option value="Rain">Rainy</option>
+                                        <option value="Storm">Storm/Heavy Rain</option>
+                                    </select>
+                                </div>
+                                <button
+                                    onClick={handleDailyPredict}
+                                    disabled={loading}
+                                    className="w-full bg-gradient-to-r from-cyan-500 to-blue-600 text-white py-3 rounded-lg font-semibold hover:shadow-md transition-all disabled:opacity-50"
+                                >
+                                    {loading ? 'Predicting...' : '🚀 Predict Daily Demand'}
+                                </button>
+                            </div>
+                        )}
+
+                        {/* Hourly Demand Form */}
+                        {activeModel === 'hourly' && (
+                            <div className="space-y-4">
+                                <div>
+                                    <label className="text-sm font-medium text-muted-foreground mb-2 block">📍 Location/Area</label>
+                                    <input
+                                        type="text"
+                                        value={hourlyForm.area}
+                                        onChange={(e) => setHourlyForm({ ...hourlyForm, area: e.target.value })}
+                                        placeholder="Enter any location (e.g., Hinjewadi Phase 2, Hadapsar)"
+                                        className="w-full bg-background border border-border rounded-lg px-4 py-3 text-foreground"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="text-sm font-medium text-muted-foreground mb-2 block">📅 Select Date</label>
+                                    <input
+                                        type="date"
+                                        value={hourlyForm.date}
+                                        onChange={(e) => setHourlyForm({ ...hourlyForm, date: e.target.value })}
+                                        className="w-full bg-background border border-border rounded-lg px-4 py-3 text-foreground"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="text-sm font-medium text-muted-foreground mb-2 block">🕐 Select Time</label>
+                                    <div className="grid grid-cols-2 gap-2">
+                                        <select
+                                            value={hourlyForm.hour}
+                                            onChange={(e) => setHourlyForm({ ...hourlyForm, hour: parseInt(e.target.value) })}
+                                            className="w-full bg-background border border-border rounded-lg px-4 py-3 text-foreground"
+                                        >
+                                            {[12, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11].map(h => (
+                                                <option key={h} value={h}>{h}:00</option>
+                                            ))}
+                                        </select>
+                                        <select
+                                            value={hourlyForm.period}
+                                            onChange={(e) => setHourlyForm({ ...hourlyForm, period: e.target.value })}
+                                            className="w-full bg-background border border-border rounded-lg px-4 py-3 text-foreground"
+                                        >
+                                            <option value="AM">AM</option>
+                                            <option value="PM">PM</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div>
+                                    <label className="text-sm font-medium text-muted-foreground mb-2 block">🚦 Traffic Level</label>
+                                    <select
+                                        value={hourlyForm.trafficLevel}
+                                        onChange={(e) => setHourlyForm({ ...hourlyForm, trafficLevel: e.target.value })}
+                                        className="w-full bg-background border border-border rounded-lg px-4 py-3 text-foreground"
+                                    >
+                                        <option value="low">Low (Free flowing)</option>
+                                        <option value="medium">Medium (Moderate)</option>
+                                        <option value="high">High (Heavy congestion)</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="text-sm font-medium text-muted-foreground mb-2 block">☁️ Weather Condition</label>
+                                    <select
+                                        value={hourlyForm.weather}
+                                        onChange={(e) => setHourlyForm({ ...hourlyForm, weather: e.target.value })}
+                                        className="w-full bg-background border border-border rounded-lg px-4 py-3 text-foreground"
+                                    >
+                                        <option value="Clear">Clear/Sunny</option>
+                                        <option value="Cloudy">Cloudy</option>
+                                        <option value="Rain">Rainy</option>
+                                        <option value="Storm">Storm/Heavy Rain</option>
+                                    </select>
+                                </div>
+                                <button
+                                    onClick={handleHourlyPredict}
+                                    disabled={loading}
+                                    className="w-full bg-primary text-white py-3 rounded-lg font-semibold hover:bg-primary/90 disabled:opacity-50"
+                                >
+                                    {loading ? 'Predicting...' : '🚀 Predict Hourly Demand'}
+                                </button>
+                            </div>
+                        )}
+
+                        {/* Accident Risk Form */}
+                        {activeModel === 'accident' && (
+                            <div className="space-y-4">
+                                <div>
+                                    <label className="text-sm font-medium text-muted-foreground mb-2 block">Location</label>
+                                    <input
+                                        type="text"
+                                        placeholder="e.g., Shivajinagar, Pune"
+                                        value={accidentForm.location}
+                                        onChange={(e) => setAccidentForm({ ...accidentForm, location: e.target.value })}
+                                        className="w-full bg-background border border-border rounded-lg px-4 py-3 text-foreground"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="text-sm font-medium text-muted-foreground mb-2 block">Hour (0-23)</label>
+                                    <input
+                                        type="number"
+                                        min="0"
+                                        max="23"
+                                        value={accidentForm.hour}
+                                        onChange={(e) => setAccidentForm({ ...accidentForm, hour: parseInt(e.target.value) })}
+                                        className="w-full bg-background border border-border rounded-lg px-4 py-3 text-foreground"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="text-sm font-medium text-muted-foreground mb-2 block">Weather</label>
+                                    <select
+                                        value={accidentForm.weather}
+                                        onChange={(e) => setAccidentForm({ ...accidentForm, weather: e.target.value })}
+                                        className="w-full bg-background border border-border rounded-lg px-4 py-3 text-foreground"
+                                    >
+                                        <option value="Clear">Clear</option>
+                                        <option value="Rain">Rain</option>
+                                        <option value="Fog">Fog</option>
+                                        <option value="Clouds">Cloudy</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="text-sm font-medium text-muted-foreground mb-2 block">Traffic Density</label>
+                                    <select
+                                        value={accidentForm.traffic_density}
+                                        onChange={(e) => setAccidentForm({ ...accidentForm, traffic_density: e.target.value })}
+                                        className="w-full bg-background border border-border rounded-lg px-4 py-3 text-foreground"
+                                    >
+                                        <option value="low">Low</option>
+                                        <option value="medium">Medium</option>
+                                        <option value="high">High</option>
+                                        <option value="very_high">Very High</option>
+                                    </select>
+                                </div>
+                                <button
+                                    onClick={handleAccidentPredict}
+                                    disabled={loading}
+                                    className="w-full bg-primary text-white py-3 rounded-lg font-semibold hover:bg-primary/90 disabled:opacity-50"
+                                >
+                                    {loading ? 'Analyzing...' : 'Predict Accident Risk'}
+                                </button>
+                            </div>
+                        )}
+
+                        {/* Trip Duration Form */}
+                        {activeModel === 'trip' && (
+                            <div className="space-y-4">
+                                <div>
+                                    <label className="text-sm font-medium text-muted-foreground mb-2 block">Distance (km)</label>
+                                    <input
+                                        type="number"
+                                        min="0"
+                                        step="0.1"
+                                        value={tripForm.distance_km}
+                                        onChange={(e) => setTripForm({ ...tripForm, distance_km: parseFloat(e.target.value) })}
+                                        className="w-full bg-background border border-border rounded-lg px-4 py-3 text-foreground"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="text-sm font-medium text-muted-foreground mb-2 block">Start Hour (0-23)</label>
+                                    <input
+                                        type="number"
+                                        min="0"
+                                        max="23"
+                                        value={tripForm.start_hour}
+                                        onChange={(e) => setTripForm({ ...tripForm, start_hour: parseInt(e.target.value) })}
+                                        className="w-full bg-background border border-border rounded-lg px-4 py-3 text-foreground"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="text-sm font-medium text-muted-foreground mb-2 block">Traffic Level</label>
+                                    <select
+                                        value={tripForm.traffic_level}
+                                        onChange={(e) => setTripForm({ ...tripForm, traffic_level: e.target.value })}
+                                        className="w-full bg-background border border-border rounded-lg px-4 py-3 text-foreground"
+                                    >
+                                        <option value="low">Low</option>
+                                        <option value="medium">Medium</option>
+                                        <option value="high">High</option>
+                                    </select>
+                                </div>
+                                <button
+                                    onClick={handleTripPredict}
+                                    disabled={loading}
+                                    className="w-full bg-primary text-white py-3 rounded-lg font-semibold hover:bg-primary/90 disabled:opacity-50"
+                                >
+                                    {loading ? 'Calculating...' : 'Predict Trip Duration'}
+                                </button>
+                            </div>
+                        )}
+
+                        {/* Dynamic Pricing Form */}
+                        {activeModel === 'pricing' && (
+                            <div className="space-y-4">
+                                <div>
+                                    <label className="text-sm font-medium text-muted-foreground mb-2 block">Distance (km)</label>
+                                    <input
+                                        type="number"
+                                        min="0"
+                                        step="0.1"
+                                        value={pricingForm.distance_km}
+                                        onChange={(e) => setPricingForm({ ...pricingForm, distance_km: parseFloat(e.target.value) })}
+                                        className="w-full bg-background border border-border rounded-lg px-4 py-3 text-foreground"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="text-sm font-medium text-muted-foreground mb-2 block">Time of Day (0-23)</label>
+                                    <input
+                                        type="number"
+                                        min="0"
+                                        max="23"
+                                        value={pricingForm.time_of_day}
+                                        onChange={(e) => setPricingForm({ ...pricingForm, time_of_day: parseInt(e.target.value) })}
+                                        className="w-full bg-background border border-border rounded-lg px-4 py-3 text-foreground"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="text-sm font-medium text-muted-foreground mb-2 block">Demand Level</label>
+                                    <select
+                                        value={pricingForm.demand_level}
+                                        onChange={(e) => setPricingForm({ ...pricingForm, demand_level: e.target.value })}
+                                        className="w-full bg-background border border-border rounded-lg px-4 py-3 text-foreground"
+                                    >
+                                        <option value="low">Low</option>
+                                        <option value="medium">Medium</option>
+                                        <option value="high">High</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="text-sm font-medium text-muted-foreground mb-2 block">Surge Multiplier</label>
+                                    <input
+                                        type="number"
+                                        min="1"
+                                        max="3"
+                                        step="0.1"
+                                        value={pricingForm.surge_multiplier}
+                                        onChange={(e) => setPricingForm({ ...pricingForm, surge_multiplier: parseFloat(e.target.value) })}
+                                        className="w-full bg-background border border-border rounded-lg px-4 py-3 text-foreground"
+                                    />
+                                </div>
+                                <button
+                                    onClick={handlePricingPredict}
+                                    disabled={loading}
+                                    className="w-full bg-primary text-white py-3 rounded-lg font-semibold hover:bg-primary/90 disabled:opacity-50"
+                                >
+                                    {loading ? 'Calculating...' : 'Calculate Price'}
+                                </button>
+                            </div>
+                        )}
+                    </motion.div>
+
+                    {/* Result Display */}
+                    <motion.div
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        className="bg-card rounded-2xl shadow-sm border border-border p-8"
+                    >
+                        <h3 className="text-lg font-bold text-foreground mb-4">Prediction Result</h3>
+                        
+                        {result ? (
+                            <div className="space-y-4">
+                                <div className="p-6 bg-primary/10 rounded-xl border border-primary/20">
+                                    <p className="text-sm text-muted-foreground mb-2">{result.type}</p>
+                                    <p className="text-4xl font-bold text-primary mb-2">{result.value}</p>
+                                    <p className="text-sm text-muted-foreground">{result.details}</p>
+                                </div>
+                                
+                                {result.confidence && (
+                                    <div className="p-4 bg-background rounded-lg border border-border">
+                                        <div className="flex items-center justify-between mb-2">
+                                            <span className="text-sm text-muted-foreground">Model Confidence</span>
+                                            <span className="text-sm font-bold text-foreground">
+                                                {(result.confidence * 100).toFixed(1)}%
+                                            </span>
+                                        </div>
+                                        <div className="w-full bg-border rounded-full h-2">
+                                            <div 
+                                                className="bg-primary h-2 rounded-full transition-all"
+                                                style={{ width: `${result.confidence * 100}%` }}
+                                            />
+                                        </div>
+                                    </div>
+                                )}
+
+                                {result.weatherImpact && (
+                                    <div className="p-4 bg-primary/10 border border-primary/20 rounded-lg">
+                                        <div className="flex items-center justify-between">
+                                            <div>
+                                                <p className="text-sm text-primary font-medium">Weather Impact</p>
+                                                <p className="text-xs text-muted-foreground mt-1">{result.weatherCondition}</p>
+                                            </div>
+                                            <span className="text-lg font-bold text-primary">{result.weatherImpact}</span>
+                                        </div>
+                                    </div>
+                                )}
+
+                                <div className="p-4 bg-primary/10 border border-primary/20 rounded-lg">
+                                    <p className="text-sm text-primary font-medium">
+                                        ✓ Real Prediction using Trained ML Model
+                                    </p>
+                                    <p className="text-xs text-muted-foreground mt-1">
+                                        {result.modelUsed || 'Based on historical data and current parameters'}
+                                    </p>
+                                </div>
+                            </div>
+                        ) : (
+                            <div className="flex flex-col items-center justify-center h-64 text-center">
+                                <Brain className="w-16 h-16 text-muted-foreground mb-4" />
+                                <p className="text-muted-foreground">Fill the form and click predict to see results</p>
+                            </div>
+                        )}
+                    </motion.div>
+                </div>
+                </div>
+            </div>
+        </div>
+    )
+}
